@@ -1,0 +1,121 @@
+#!/bin/bash
+
+#fastqc/trimmomatic/multiqc
+
+# (START OF FIRST SCRIPT)
+
+# Define directories
+BASE_DIR="$HOME/Data_Analysis"
+INPUT_DIR="$BASE_DIR/input_raw"
+OUTPUT_DIR="$BASE_DIR/output_multiqc"
+LOG_DIR="$BASE_DIR/logs"
+RAW_FASTQC_DIR="$BASE_DIR/raw_fastqc"
+INTERMEDIATE_DIR="$BASE_DIR/intermediate_trimmed"
+TRIMMED_FASTQC_DIR="$BASE_DIR/trimmed_fastqc"
+
+# Check if BASE_DIR exists and create it if not
+if [ -d "$BASE_DIR" ]; then
+  echo "The directory "$BASE_DIR"" already exists"
+else
+  echo "The directory "$BASE_DIR" will be created"
+  # Create directory structure
+  mkdir -p "$INPUT_DIR" "$OUTPUT_DIR" "$LOG_DIR" "$INTERMEDIATE_DIR" "$RAW_FASTQC_DIR" "$TRIMMED_FASTQC_DIR"
+fi
+
+# (END OF FIRST SCRIPT)
+
+# (START OF SECOND SCRIPT)
+
+# Log file
+LOG_FILE="$LOG_DIR/analysis.log"
+
+
+
+# Send the samples to the directory "~/Data_Analysis/input_raw"
+echo "Enter directory, with "/home/userid/path_to_file" format, where the sample files are, make sure there are only sam
+ple files and nothing else"
+read sampledir
+cp "$sampledir"/* "$INPUT_DIR"
+
+# (EXTRA)
+# Check how many files are now in the "input" directory
+files=$(ls -lh "$INPUT_DIR" | wc -l)
+echo  "There are $(($files-1)) files in the "$INPUT_DIR" directory"
+
+
+# Start logging
+echo "Data analysis started at $(date)" > "$LOG_FILE"
+echo "Base directory (main base directory where all of the other archives and directories will be stored): $BASE_DIR" >>
+ "$LOG_FILE"
+echo "Input directory (Raw/original sample Fastq files will be stored): $INPUT_DIR" >> "$LOG_FILE"
+echo "Output directory (Output Multiqc files will be stored): $OUTPUT_DIR" >> "$LOG_FILE"
+echo "Log directory (Log file containing the proccess tracing will be stored): $LOG_DIR" >> "$LOG_FILE"
+echo "Raw FastQC directory (Raw sample files after being Fastqc processed will be stored): $RAW_FASTQC_DIR" >> "$LOG_FIL
+E"
+echo "Intermediate Trimmed directory (Trimmed raw data will be stored): $INTERMEDIATE_DIR" >> "$LOG_FILE"
+echo "Trimmed FastQC directory (Trimmed raw data after being Fastqc processed will be stored) : $TRIMMED_FASTQC_DIR" >>
+"$LOG_FILE"
+echo "Original sample files were copied to "$INPUT_DIR" >> "$LOG_FILE"
+
+
+# Function to process each pair of fastq files
+process_sample() {
+    local sample_id=$1
+    local r1_file=$2
+    local r2_file=$3
+
+    echo "Processing sample: $sample_id" >> "$LOG_FILE"
+
+    # FastQC on raw data from "$INPUT_DIR" to "$RAW_FASTQC_DIR"
+    echo "Fastqc process on "$sample_id" inicialize" >> "$LOG_FILE" 2>&1
+    fastqc -o "$RAW_FASTQC_DIR" "$r1_file" "$r2_file" >> "$LOG_FILE" 2>&1
+
+    # Trimmomatic samples identifying
+    local trimP_r1="$INTERMEDIATE_DIR/${sample_id}_R1_trimP.fastq.gz"
+    local trimP_r2="$INTERMEDIATE_DIR/${sample_id}_R2_trimP.fastq.gz"
+    local trimU_r1="$INTERMEDIATE_DIR/${sample_id}_R1_trimU.fastq.gz"
+    local trimU_r2="$INTERMEDIATE_DIR/${sample_id}_R2_trimU.fastq.gz"
+
+
+    # Trim samples (adjust parameters if needed)
+    echo "Trimmonatic process on "$sample_id" inicialize" >> "$LOG_FILE" 2>&1
+    trimmomatic PE -phred33 \
+        "$r1_file" "$r2_file" \
+        "$trimP_r1" "$trimU_r1" \
+        "$trimP_r2" "$trimU_r2" \
+        ILLUMINACLIP:/home/fc57966/miniconda3/envs/tools_qc/share/trimmomatic-0.39-2/adapters/TruSeq3-PE-2.fa:2:151:10 L
+EADING:3 TRAILING:3 SLIDINGWINDOW:4:15 MINLEN:36 >> "$LOG_FILE" 2>&1
+
+    # FastQC on trimmed data
+    echo " Fastqc process on trimmed "$sample_id" inicialize" >>$LOG_FILE" 2>&1
+    fastqc -o "$TRIMMED_FASTQC_DIR" "$trimP_r1" "$trimP_r2" >> "$LOG_FILE" 2>&1
+
+    echo "Sample $sample_id processing complete. Output files: $trimP_r1, $trimP_r2" >> "$LOG_FILE"
+}
+
+
+# Execute for each pair of fastq sample files
+for r1_file in "$INPUT_DIR"/*_R1.fastq.gz; do
+    r2_file="${r1_file/_R1.fastq.gz/_R2.fastq.gz}"
+
+    # Extract sample ID from file name
+    sample_id=$(basename "$r1_file" | sed 's/_R1.fastq.gz//')
+
+    if [ -f "$r1_file" ] && [ -f "$r2_file" ]; then
+      # Process the sample
+      process_sample "$sample_id" "$r1_file" "$r2_file"
+    else
+      echo "There are no sample files to process in $INPUT_DIR directory or there is only one file of the sample (instea
+d of 2)"
+    fi
+done
+
+
+# Run MultiQC to aggregate FastQC reports
+multiqc "$RAW_FASTQC_DIR" "$TRIMMED_FASTQC_DIR" -o "$OUTPUT_DIR" >> "$LOG_FILE" 2>&1
+
+
+# Final logging
+echo "Data analysis completed at $(date)" >> "$LOG_FILE"
+
+# (END OF SECOND SCRIPT)
